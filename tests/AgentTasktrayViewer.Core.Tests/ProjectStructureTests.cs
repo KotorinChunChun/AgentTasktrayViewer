@@ -113,4 +113,30 @@ public sealed class ProjectStructureTests
             }
         }
     }
+
+    [TestMethod]
+    public void Claude既存statusLineは設定操作で上書きしない()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "AgentTasktrayViewerTests", Guid.NewGuid().ToString("N"));
+        string settingsPath = Path.Combine(directory, "settings.json");
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(settingsPath, "{\"statusLine\":{\"type\":\"command\",\"command\":\"existing\"},\"other\":true}");
+            var manager = new ClaudeIntegrationManager(settingsPath);
+
+            bool configured = manager.Configure("C:\\AgentTasktrayViewer.exe");
+
+            Assert.IsFalse(configured);
+            StringAssert.Contains(File.ReadAllText(settingsPath), "existing");
+            Assert.AreEqual(ClaudeIntegrationStatus.ExistingStatusLinePreserved, manager.GetStatus());
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, true);
+            }
+        }
+    }
 }

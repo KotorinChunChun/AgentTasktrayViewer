@@ -65,6 +65,23 @@ public sealed class ClaudeUsageProvider : IUsageProvider
 
     public string CachePath => _cachePath;
 
+    public DateTimeOffset? GetLastReceivedAt()
+    {
+        try
+        {
+            if (!File.Exists(_cachePath))
+            {
+                return null;
+            }
+            ClaudeUsageCache? cache = JsonSerializer.Deserialize<ClaudeUsageCache>(File.ReadAllText(_cachePath), JsonOptions);
+            return cache?.ReceivedAt;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     public IReadOnlyList<UsageWindow> LoadCachedUsage()
     {
         try

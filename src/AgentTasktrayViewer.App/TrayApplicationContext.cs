@@ -9,6 +9,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly AppSettings _settings;
     private readonly CodexUsageProvider _codexProvider = new();
     private readonly ClaudeUsageProvider _claudeProvider;
+    private readonly ClaudeIntegrationManager _claudeIntegration = new();
+    private readonly StartupManager _startupManager = new();
     private readonly CodexActivityDetector _activityDetector = new();
     private readonly NamedPipeClaudeUsageServer _ipcServer = new();
     private readonly CancellationTokenSource _shutdown = new();
@@ -124,13 +126,38 @@ internal sealed class TrayApplicationContext : ApplicationContext
             Checked = _settings.StartWithWindows
         };
         startWithWindowsMenuItem = startItem;
-        startItem.Click += (_, _) =>
+        startItem.Click += async (_, _) =>
         {
-            _settings.StartWithWindows = startItem.Checked;
+            bool requested = startItem.Checked;
+            bool applied = await _startupManager.SetEnabledAsync(requested);
+            _settings.StartWithWindows = applied && requested;
+            startItem.Checked = _settings.StartWithWindows;
             _settingsManager.Save(_settings);
         };
         menu.Items.Add(startItem);
         menu.Items.Add(new ToolStripSeparator());
+
+        var claudeIntegrationStatus = new ToolStripMenuItem { Enabled = false };
+        var claudeLastReceived = new ToolStripMenuItem { Enabled = false };
+        menu.Items.Add(new ToolStripMenuItem("Claude Code連携")
+        {
+            DropDownItems =
+            {
+                claudeIntegrationStatus,
+                claudeLastReceived,
+                new ToolStripSeparator(),
+                CreateClaudeConfigureItem(),
+                CreateClaudeUnconfigureItem()
+            }
+        });
+        menu.Opening += (_, _) =>
+        {
+            claudeIntegrationStatus.Text = $"状態: {FormatIntegrationStatus(_claudeIntegration.GetStatus())}";
+            DateTimeOffset? receivedAt = _claudeProvider.GetLastReceivedAt();
+            claudeLastReceived.Text = receivedAt is null
+                ? "最終受信: なし"
+                : $"最終受信: {receivedAt.Value:HH:mm:ss}";
+        };
 
         var updateNow = new ToolStripMenuItem("今すぐ更新");
         updateNow.Click += (_, _) => _ = UpdateAllAsync();
@@ -177,6 +204,43 @@ internal sealed class TrayApplicationContext : ApplicationContext
         };
         return item;
     }
+
+    private ToolStripMenuItem CreateClaudeConfigureItem()
+    {
+        var item = new ToolStripMenuItem("連携を設定");
+        item.Click += (_, _) =>
+        {
+            string executablePath = Environment.ProcessPath ?? "AgentTasktrayViewer.exe";
+            if (_claudeIntegration.Configure(executablePath))
+            {
+                _settings.ClaudeIntegrationEnabled = true;
+                _settingsManager.Save(_settings);
+            }
+        };
+        return item;
+    }
+
+    private ToolStripMenuItem CreateClaudeUnconfigureItem()
+    {
+        var item = new ToolStripMenuItem("連携を解除");
+        item.Click += (_, _) =>
+        {
+            string executablePath = Environment.ProcessPath ?? "AgentTasktrayViewer.exe";
+            if (_claudeIntegration.Unconfigure(executablePath))
+            {
+                _settings.ClaudeIntegrationEnabled = false;
+                _settingsManager.Save(_settings);
+            }
+        };
+        return item;
+    }
+
+    private static string FormatIntegrationStatus(ClaudeIntegrationStatus status) => status switch
+    {
+        ClaudeIntegrationStatus.ConfiguredByAgentTasktrayViewer => "連携済み",
+        ClaudeIntegrationStatus.ExistingStatusLinePreserved => "既存設定を維持中",
+        _ => "未設定"
+    };
 
     private void SetUpdateInterval(int minutes, ToolStripMenuItem intervalMenu)
     {
