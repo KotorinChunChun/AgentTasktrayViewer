@@ -67,6 +67,14 @@ internal sealed class TrayIconManager : IDisposable
 
     public bool IsVisible(TrayIconKind kind) => GetIcon(kind).Visible;
 
+    public void CopyVisibilityTo(AppSettings settings)
+    {
+        settings.ShowCodexFiveHour = IsVisible(TrayIconKind.CodexFiveHour);
+        settings.ShowCodexWeekly = IsVisible(TrayIconKind.CodexWeekly);
+        settings.ShowClaudeFiveHour = IsVisible(TrayIconKind.ClaudeFiveHour);
+        settings.ShowClaudeWeekly = IsVisible(TrayIconKind.ClaudeWeekly);
+    }
+
     public void AttachMenu(ContextMenuStrip menu)
     {
         _menu = menu;
@@ -84,7 +92,9 @@ internal sealed class TrayIconManager : IDisposable
         SetVisible(TrayIconKind.ClaudeWeekly, settings.ShowClaudeWeekly);
         if (AllIcons().All(icon => !icon.Visible))
         {
+            settings.ShowCodexFiveHour = true;
             CodexFiveHourIcon.Visible = true;
+            VisibilityStateChanged?.Invoke(this, new VisibilityStateEventArgs(TrayIconKind.CodexFiveHour, true));
         }
     }
 
@@ -147,10 +157,11 @@ internal sealed class TrayIconManager : IDisposable
 
     private NotifyIcon CreateIcon(UsageProvider provider, UsageWindowType windowType, Color color)
     {
+        UsageWindow window = UsageWindow.Unavailable(provider, windowType);
         var icon = new NotifyIcon
         {
-            Icon = IconFactory.Create(UsageWindow.Unavailable(provider, windowType), color),
-            Text = "AgentTasktrayViewer: ?"
+            Icon = IconFactory.Create(window, color),
+            Text = BuildToolTip(window)
         };
         icon.Click += (_, _) => { };
         return icon;

@@ -36,6 +36,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         ContextMenuStrip menu = BuildMenu(out _pauseMenuItem, out _startWithWindowsMenuItem);
         _iconManager.AttachMenu(menu);
         _iconManager.ApplyVisibility(_settings);
+        _settingsManager.Save(_settings);
 
         _updateTimer = new System.Windows.Forms.Timer { Interval = (int)_settings.UpdateInterval.TotalMilliseconds };
         _updateTimer.Tick += (_, _) => _ = UpdateCodexIfNeededAsync();
@@ -253,7 +254,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
-    private void OnVisibilityChanged(object? sender, EventArgs e) => _settingsManager.Save(_settings);
+    private void OnVisibilityChanged(object? sender, EventArgs e)
+    {
+        _iconManager.CopyVisibilityTo(_settings);
+        _settingsManager.Save(_settings);
+    }
 
     private async Task UpdateAllAsync()
     {
