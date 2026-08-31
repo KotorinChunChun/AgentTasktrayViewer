@@ -17,6 +17,7 @@ release/
 *.cer
 *.pfx
 *.p12
+packaging/msix/production.json
 
 # 秘匿情報・ローカル設定
 .env
@@ -38,4 +39,3 @@ tmp/
 
 # AIアシスタントのローカル作業情報
 .claude/
-
