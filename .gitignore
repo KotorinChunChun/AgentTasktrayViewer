@@ -1,0 +1,41 @@
+# .NET / Visual Studio ビルド成果物
+**/bin/
+**/obj/
+.vs/
+TestResults/
+artifacts/
+*.user
+*.suo
+*.pdb
+
+# MSIX・リリース成果物
+release/
+*.msix
+*.msixbundle
+*.appx
+*.appxbundle
+*.cer
+*.pfx
+*.p12
+
+# 秘匿情報・ローカル設定
+.env
+.env.*
+secrets.json
+*.key
+*.pem
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ログ・実行時一時データ
+*.log
+*.sqlite
+tmp/
+
+# AIアシスタントのローカル作業情報
+.claude/
+
