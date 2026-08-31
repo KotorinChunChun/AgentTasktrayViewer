@@ -88,4 +88,29 @@ public sealed class ProjectStructureTests
             Directory.Delete(directory, true);
         }
     }
+
+    [TestMethod]
+    public async Task ClaudeStatusLine受信は最小キャッシュを保存する()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "AgentTasktrayViewerTests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            const string json = "{\"rate_limits\":{\"five_hour\":{\"used_percentage\":12,\"resets_at\":1700000000}}}";
+            var receiver = new ClaudeStatusLineReceiver(directory);
+
+            bool result = await receiver.ReceiveAsync(new StringReader(json));
+            string cache = await File.ReadAllTextAsync(Path.Combine(directory, "claude-usage-cache.json"));
+
+            Assert.IsTrue(result);
+            StringAssert.Contains(cache, "FiveHour");
+            Assert.DoesNotContain("transcript_path", cache);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, true);
+            }
+        }
+    }
 }
