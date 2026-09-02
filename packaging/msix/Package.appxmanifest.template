@@ -20,7 +20,7 @@
   <Applications>
     <Application Id="App" Executable="AgentTasktrayViewer.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        AppListEntry="none"
+        AppListEntry="default"
         DisplayName="__DISPLAY_NAME__"
         Description="CodexとClaude Codeの使用量をタスクトレイへ表示します。"
         BackgroundColor="transparent"
