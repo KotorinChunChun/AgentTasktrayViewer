@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [string]$ConfigurationFile = 'packaging/msix/development.json',
-    [switch]$SkipSigning
+    [switch]$SkipSigning,
+    [string]$SigningBundlePath = 'C:\Users\kc\Downloads\開発用暫定署名',
+    [string]$SigningProfilePath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,6 +32,79 @@ function Find-WindowsSdkTool {
         Select-Object -First 1
     if (-not $tool) { throw "$Name が見つかりません。Windows SDKを確認してください。" }
     return $tool.FullName
+}
+
+function Get-SigningProfile {
+    param(
+        [Parameter(Mandatory)][string]$BundlePath,
+        [string]$ProfilePath
+    )
+
+    $modulePath = Join-Path $BundlePath 'MsixSigning.psm1'
+    if (-not (Test-Path -LiteralPath $modulePath -PathType Leaf)) {
+        throw "MSIX署名モジュールが見つかりません: $modulePath"
+    }
+    Import-Module $modulePath -Force
+    if ([string]::IsNullOrWhiteSpace($ProfilePath)) {
+        $ProfilePath = Get-MsixSigningProfilePath
+    }
+    if (-not (Test-Path -LiteralPath $ProfilePath -PathType Leaf)) {
+        throw "PC共通のMSIX署名設定がありません: $ProfilePath"
+    }
+
+    try {
+        $profile = Get-Content -LiteralPath $ProfilePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw "PC共通のMSIX署名設定をJSONとして読み込めません: $ProfilePath"
+    }
+    $profileFields = @($profile.PSObject.Properties.Name)
+    $requiredProfileFields = @('schemaVersion', 'storeLocation', 'storeName', 'thumbprint', 'publisher')
+    if ($profileFields.Count -ne $requiredProfileFields.Count -or
+        @($requiredProfileFields | Where-Object { $_ -notin $profileFields }).Count -gt 0 -or
+        $profile.schemaVersion -ne 1 -or
+        $profile.storeLocation -cne 'CurrentUser' -or
+        $profile.storeName -cne 'My' -or
+        $profile.thumbprint -notmatch '^[A-Fa-f0-9]{40}$' -or
+        $profile.publisher -notmatch '^CN=.+$') {
+        throw 'PC共通のMSIX署名設定が不正です。CurrentUser/Myだけを使用します。'
+    }
+    return $profile
+}
+
+function Get-SigningCertificate {
+    param(
+        [Parameter(Mandatory)]$Profile,
+        [Parameter(Mandatory)][string]$Publisher
+    )
+
+    if ($Profile.publisher -cne $Publisher) {
+        throw "MSIXのPublisher ($Publisher) と共通署名設定 ($($Profile.publisher)) が一致しません。"
+    }
+    $thumbprint = ([string]$Profile.thumbprint).Replace(' ', '').ToUpperInvariant()
+    $certificate = Get-Item -LiteralPath "Cert:\CurrentUser\My\$thumbprint" -ErrorAction Stop
+    if (-not $certificate.HasPrivateKey) {
+        $certificate.Dispose()
+        throw '共通証明書に秘密鍵がありません。'
+    }
+    if ($certificate.Subject -cne $Publisher -or $certificate.Thumbprint -cne $thumbprint) {
+        $certificate.Dispose()
+        throw '共通証明書のPublisherまたは拇印が一致しません。'
+    }
+    $now = Get-Date
+    if ($certificate.NotBefore -gt $now -or $certificate.NotAfter -le $now.AddDays(7)) {
+        $certificate.Dispose()
+        throw '共通証明書が有効期間外、または期限まで7日以下です。'
+    }
+    $usages = @($certificate.Extensions |
+        Where-Object { $_ -is [System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension] } |
+        ForEach-Object { $_.EnhancedKeyUsages } |
+        ForEach-Object { $_.Value })
+    if ('1.3.6.1.5.5.7.3.3' -notin $usages) {
+        $certificate.Dispose()
+        throw '共通証明書にCode Signing用途がありません。'
+    }
+    return $certificate
 }
 
 function New-PlaceholderPng {
@@ -110,13 +185,17 @@ $makeAppx = Find-WindowsSdkTool -Name 'MakeAppx.exe'
 if ($LASTEXITCODE -ne 0) { throw 'MSIX生成に失敗しました。' }
 
 if (-not $SkipSigning) {
-    $thumbprint = $env:AGENTTASKTRAYVIEWER_SIGNING_THUMBPRINT
-    if ([string]::IsNullOrWhiteSpace($thumbprint)) {
-        throw '署名証明書のThumbprintがありません。環境変数AGENTTASKTRAYVIEWER_SIGNING_THUMBPRINTを設定するか、-SkipSigningを指定してください。'
+    $certificate = $null
+    try {
+        $profile = Get-SigningProfile -BundlePath $SigningBundlePath -ProfilePath $SigningProfilePath
+        $certificate = Get-SigningCertificate -Profile $profile -Publisher ([string]$configuration.Publisher)
+        $signTool = Find-WindowsSdkTool -Name 'SignTool.exe'
+        & $signTool sign /sha1 $certificate.Thumbprint /fd SHA256 $packagePath
+        if ($LASTEXITCODE -ne 0) { throw 'MSIX署名に失敗しました。' }
     }
-    $signTool = Find-WindowsSdkTool -Name 'SignTool.exe'
-    & $signTool sign /sha1 $thumbprint /fd SHA256 $packagePath
-    if ($LASTEXITCODE -ne 0) { throw 'MSIX署名に失敗しました。' }
+    finally {
+        if ($certificate) { $certificate.Dispose() }
+    }
 }
 
 Write-Host "MSIXを生成しました: $packagePath" -ForegroundColor Green

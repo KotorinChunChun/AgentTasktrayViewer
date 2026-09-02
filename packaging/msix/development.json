@@ -1,7 +1,6 @@
 {
   "IdentityName": "AgentTasktrayViewer.Development",
-  "Publisher": "CN=AgentTasktrayViewer Development",
-  "PublisherDisplayName": "AgentTasktrayViewer Development",
+  "Publisher": "CN=KotorinChunChun",
+  "PublisherDisplayName": "KotorinChunChun",
   "DisplayName": "AgentTasktrayViewer (Development)"
 }
-
