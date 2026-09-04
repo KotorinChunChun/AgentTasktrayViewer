@@ -67,6 +67,26 @@ internal sealed class TrayIconManager : IDisposable
 
     public bool IsVisible(TrayIconKind kind) => GetIcon(kind).Visible;
 
+    public bool IsProviderVisible(UsageProvider provider) => provider switch
+    {
+        UsageProvider.Codex => CodexFiveHourIcon.Visible || CodexWeeklyIcon.Visible,
+        UsageProvider.Claude => ClaudeFiveHourIcon.Visible || ClaudeWeeklyIcon.Visible,
+        _ => false
+    };
+
+    public void ShowWarning(UsageProvider provider, string title, string message)
+    {
+        NotifyIcon? icon = provider switch
+        {
+            UsageProvider.Codex when CodexFiveHourIcon.Visible => CodexFiveHourIcon,
+            UsageProvider.Codex when CodexWeeklyIcon.Visible => CodexWeeklyIcon,
+            UsageProvider.Claude when ClaudeFiveHourIcon.Visible => ClaudeFiveHourIcon,
+            UsageProvider.Claude when ClaudeWeeklyIcon.Visible => ClaudeWeeklyIcon,
+            _ => null
+        };
+        icon?.ShowBalloonTip(10000, title, message, ToolTipIcon.Warning);
+    }
+
     public void CopyVisibilityTo(AppSettings settings)
     {
         settings.ShowCodexFiveHour = IsVisible(TrayIconKind.CodexFiveHour);

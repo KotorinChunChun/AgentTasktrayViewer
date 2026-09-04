@@ -7,8 +7,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private static readonly TimeSpan InactivityThreshold = TimeSpan.FromMinutes(15);
     private readonly SettingsManager _settingsManager;
     private readonly AppSettings _settings;
-    private readonly CodexUsageProvider _codexProvider = new();
+    private readonly CodexExecutableLocator _codexExecutableLocator = new();
+    private readonly CodexUsageProvider _codexProvider;
     private readonly ClaudeUsageProvider _claudeProvider;
+    private readonly ClaudeCliLocator _claudeCliLocator = new();
     private readonly ClaudeIntegrationManager _claudeIntegration = new();
     private readonly StartupManager _startupManager = new();
     private readonly CodexActivityDetector _activityDetector = new();
@@ -21,6 +23,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly SynchronizationContext _uiContext;
     private readonly ToolStripMenuItem _pauseMenuItem;
     private readonly ToolStripMenuItem _startWithWindowsMenuItem;
+    private ToolStripMenuItem? _codexDiagnosticItem;
+    private ToolStripMenuItem? _claudeDiagnosticItem;
+    private ToolStripMenuItem? _codexInstallItem;
+    private ToolStripMenuItem? _claudeInstallItem;
+    private bool _codexDataAvailable;
+    private bool _claudeDataAvailable;
+    private bool _codexWarningShown;
+    private bool _claudeWarningShown;
     private bool _wasInactive;
     private bool _isExiting;
 
@@ -28,6 +38,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         _settingsManager = new SettingsManager();
         _settings = _settingsManager.Load();
+        _codexProvider = new CodexUsageProvider(_codexExecutableLocator);
         _uiContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
         _claudeProvider = new ClaudeUsageProvider(_settingsManager.ApplicationDataDirectory);
         _iconManager = new TrayIconManager(_settings);
@@ -49,7 +60,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _ipcServer.Start(OnClaudeUsageNotificationAsync);
         _pauseMenuItem.Checked = _settings.PauseWhenInactive;
         _startWithWindowsMenuItem.Checked = _settings.StartWithWindows;
-        _ = UpdateAllAsync();
+        _ = InitializeAsync();
     }
 
     protected override void ExitThreadCore()
@@ -92,7 +103,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
             new ToolStripSeparator()
         });
 
+        menu.Items.Add(BuildDiagnosticsMenu());
+
         var visibility = new ToolStripMenuItem("表示するアイコン");
+        visibility.DropDown.AutoClose = false;
         AddVisibilityItem(visibility, "Codex 5時間", TrayIconKind.CodexFiveHour);
         AddVisibilityItem(visibility, "Codex 週間", TrayIconKind.CodexWeekly);
         AddVisibilityItem(visibility, "Claude 5時間", TrayIconKind.ClaudeFiveHour);
@@ -161,7 +175,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         };
 
         var updateNow = new ToolStripMenuItem("今すぐ更新");
-        updateNow.Click += (_, _) => _ = UpdateAllAsync();
+        updateNow.Click += (_, _) => _ = RefreshAllAsync(true);
         menu.Items.Add(updateNow);
         menu.Items.Add(CreateBrowserItem("Codex 使用量ページを開く", "https://chatgpt.com/codex/settings/usage"));
         menu.Items.Add(CreateBrowserItem("Claude 使用量ページを開く", "https://claude.ai/settings/usage"));
@@ -184,7 +198,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private void AddVisibilityItem(ToolStripMenuItem parent, string text, TrayIconKind kind)
     {
         var item = new ToolStripMenuItem(text) { CheckOnClick = true, Checked = _iconManager.IsVisible(kind), Tag = kind };
-        item.Click += (_, _) => _iconManager.TrySetVisibility(kind, item.Checked);
+        item.Click += (_, _) =>
+        {
+            if (_iconManager.TrySetVisibility(kind, item.Checked))
+            {
+                UpdateProviderDiagnostics(true);
+            }
+        };
         _iconManager.VisibilityStateChanged += (_, e) =>
         {
             if (e.Kind == kind)
@@ -193,6 +213,27 @@ internal sealed class TrayApplicationContext : ApplicationContext
             }
         };
         parent.DropDownItems.Add(item);
+    }
+
+    private ToolStripMenuItem BuildDiagnosticsMenu()
+    {
+        var menu = new ToolStripMenuItem("接続状態");
+        _codexDiagnosticItem = new ToolStripMenuItem("Codex: 確認中") { Enabled = false };
+        _claudeDiagnosticItem = new ToolStripMenuItem("Claude Code: 確認中") { Enabled = false };
+        _codexInstallItem = CreateBrowserItem("Codex CLIの導入案内を開く", "https://developers.openai.com/codex/");
+        _claudeInstallItem = CreateBrowserItem("Claude Codeの導入案内を開く", "https://docs.anthropic.com/en/docs/claude-code/getting-started");
+        _codexInstallItem.Visible = false;
+        _claudeInstallItem.Visible = false;
+
+        var refresh = new ToolStripMenuItem("再確認");
+        refresh.Click += (_, _) => _ = RefreshAllAsync(true);
+        menu.DropDownItems.Add(_codexDiagnosticItem);
+        menu.DropDownItems.Add(_claudeDiagnosticItem);
+        menu.DropDownItems.Add(new ToolStripSeparator());
+        menu.DropDownItems.Add(_codexInstallItem);
+        menu.DropDownItems.Add(_claudeInstallItem);
+        menu.DropDownItems.Add(refresh);
+        return menu;
     }
 
     private static ToolStripMenuItem CreateBrowserItem(string text, string url)
@@ -260,6 +301,115 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _settingsManager.Save(_settings);
     }
 
+    private async Task InitializeAsync()
+    {
+        await RefreshAllAsync(true);
+    }
+
+    private async Task RefreshAllAsync(bool notify)
+    {
+        await UpdateAllAsync();
+        UpdateProviderDiagnostics(notify);
+    }
+
+    private void UpdateProviderDiagnostics(bool notify)
+    {
+        UpdateCodexDiagnostics(notify);
+        UpdateClaudeDiagnostics(notify);
+    }
+
+    private void UpdateCodexDiagnostics(bool notify)
+    {
+        if (!_iconManager.IsProviderVisible(UsageProvider.Codex))
+        {
+            SetDiagnostic(_codexDiagnosticItem, "Codex: アイコン非表示（確認対象外）", _codexInstallItem, false);
+            return;
+        }
+
+        string? executablePath = _codexExecutableLocator.Find();
+        if (executablePath is null)
+        {
+            SetDiagnostic(_codexDiagnosticItem, "Codex CLI: 未検出", _codexInstallItem, true);
+            if (notify && !_codexWarningShown)
+            {
+                _codexWarningShown = true;
+                _iconManager.ShowWarning(UsageProvider.Codex, "Codex CLIが見つかりません", "Codexの使用量を取得できません。接続状態メニューから導入案内を開けます。");
+            }
+            return;
+        }
+
+        if (!_codexDataAvailable)
+        {
+            SetDiagnostic(_codexDiagnosticItem, "Codex CLI: 検出済み・取得失敗", _codexInstallItem, true);
+            if (notify && !_codexWarningShown)
+            {
+                _codexWarningShown = true;
+                _iconManager.ShowWarning(UsageProvider.Codex, "Codexの使用量を取得できません", "Codex CLIは見つかりましたが、使用量情報を取得できませんでした。ログイン状態やCLIの更新を確認してください。");
+            }
+            return;
+        }
+
+        SetDiagnostic(_codexDiagnosticItem, "Codex CLI: 検出・更新済み", _codexInstallItem, false);
+    }
+
+    private void UpdateClaudeDiagnostics(bool notify)
+    {
+        if (!_iconManager.IsProviderVisible(UsageProvider.Claude))
+        {
+            SetDiagnostic(_claudeDiagnosticItem, "Claude Code: アイコン非表示（確認対象外）", _claudeInstallItem, false);
+            return;
+        }
+
+        string? executablePath = _claudeCliLocator.Find();
+        ClaudeIntegrationStatus integrationStatus = _claudeIntegration.GetStatus();
+        if (executablePath is null && integrationStatus == ClaudeIntegrationStatus.NotConfigured)
+        {
+            SetDiagnostic(_claudeDiagnosticItem, "Claude Code: CLI未検出・未連携", _claudeInstallItem, true);
+            if (notify && !_claudeWarningShown)
+            {
+                _claudeWarningShown = true;
+                _iconManager.ShowWarning(UsageProvider.Claude, "Claude Codeが見つかりません", "Claude Codeを導入し、接続状態メニューから導入案内または連携設定を確認してください。");
+            }
+            return;
+        }
+
+        if (integrationStatus == ClaudeIntegrationStatus.NotConfigured)
+        {
+            SetDiagnostic(_claudeDiagnosticItem, "Claude Code: 連携未設定", _claudeInstallItem, true);
+            if (notify && !_claudeWarningShown)
+            {
+                _claudeWarningShown = true;
+                _iconManager.ShowWarning(UsageProvider.Claude, "Claude Code連携が未設定です", "Claude Code連携メニューからstatusLine連携を設定してください。");
+            }
+            return;
+        }
+
+        if (!_claudeDataAvailable)
+        {
+            SetDiagnostic(_claudeDiagnosticItem, "Claude Code: データ未受信", _claudeInstallItem, true);
+            if (notify && !_claudeWarningShown)
+            {
+                _claudeWarningShown = true;
+                _iconManager.ShowWarning(UsageProvider.Claude, "Claude Codeからデータを受信していません", "Claude Codeを起動してstatusLine連携を確認してください。");
+            }
+            return;
+        }
+
+        SetDiagnostic(_claudeDiagnosticItem, "Claude Code: 連携・更新済み", _claudeInstallItem, false);
+    }
+
+    private static void SetDiagnostic(ToolStripMenuItem? statusItem, string text, ToolStripMenuItem? installItem, bool showInstallItem)
+    {
+        if (statusItem is not null)
+        {
+            statusItem.Text = text;
+        }
+        if (installItem is not null)
+        {
+            installItem.Visible = showInstallItem;
+        }
+    }
+
     private async Task UpdateAllAsync()
     {
         if (!await _updateGate.WaitAsync(0, _shutdown.Token))
@@ -269,8 +419,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
         try
         {
             IReadOnlyList<UsageWindow> codex = await _codexProvider.GetUsageAsync(_shutdown.Token);
+            _codexDataAvailable = codex.Any(window => window.IsAvailable);
             ApplyWindows(codex);
-            ApplyWindows(_claudeProvider.LoadCachedUsage());
+            IReadOnlyList<UsageWindow> claude = _claudeProvider.LoadCachedUsage();
+            _claudeDataAvailable = claude.Any(window => window.IsAvailable);
+            ApplyWindows(claude);
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
         {
