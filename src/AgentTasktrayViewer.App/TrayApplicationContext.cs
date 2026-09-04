@@ -106,7 +106,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
         menu.Items.Add(BuildDiagnosticsMenu());
 
         var visibility = new ToolStripMenuItem("表示するアイコン");
-        visibility.DropDown.AutoClose = false;
+        visibility.DropDown.Closing += (_, e) =>
+        {
+            if (e.CloseReason == ToolStripDropDownCloseReason.ItemClicked)
+            {
+                e.Cancel = true;
+            }
+        };
         AddVisibilityItem(visibility, "Codex 5時間", TrayIconKind.CodexFiveHour);
         AddVisibilityItem(visibility, "Codex 週間", TrayIconKind.CodexWeekly);
         AddVisibilityItem(visibility, "Claude 5時間", TrayIconKind.ClaudeFiveHour);
