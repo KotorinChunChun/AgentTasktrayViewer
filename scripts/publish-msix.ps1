@@ -192,6 +192,12 @@ if (-not $SkipSigning) {
         $signTool = Find-WindowsSdkTool -Name 'SignTool.exe'
         & $signTool sign /sha1 $certificate.Thumbprint /fd SHA256 $packagePath
         if ($LASTEXITCODE -ne 0) { throw 'MSIX署名に失敗しました。' }
+
+        $certificateName = ([string]$configuration.Publisher -replace '^CN=', '') -replace '[^A-Za-z0-9._-]', '_'
+        if ([string]::IsNullOrWhiteSpace($certificateName)) { $certificateName = 'AgentTasktrayViewer-Publisher' }
+        $certificatePath = Join-Path $outputDirectory "$certificateName.cer"
+        Export-Certificate -Cert $certificate -FilePath $certificatePath -Type CERT -Force | Out-Null
+        Write-Host "配布用公開証明書を出力しました: $certificatePath" -ForegroundColor Green
     }
     finally {
         if ($certificate) { $certificate.Dispose() }

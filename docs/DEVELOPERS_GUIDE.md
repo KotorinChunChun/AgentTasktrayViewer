@@ -29,3 +29,5 @@ pwsh -NoProfile -File scripts/publish-msix.ps1
 署名バンドルの場所が既定値と異なる場合は、`-SigningBundlePath`で指定してください。PFXのパスワードや秘密鍵はスクリプトへ渡さず、署名バンドルの移植手順に従って事前登録します。
 
 開発用の自己署名証明書は信頼ストアへ登録していないため、`SignTool verify /pa`では信頼チェーン警告になる場合があります。発行処理で`Successfully signed`が表示され、署名証明書のPublisher・拇印・秘密鍵・Code Signing用途が一致することを確認します。
+
+署名付きMSIXを発行すると、MSIXと同じ`release/Publish`へ署名者の公開証明書（`.cer`）も自動出力します。現在の開発用構成では`KotorinChunChun.cer`です。配布先ではこの`.cer`だけを信頼済みユーザー（`Trusted People`）へ登録します。秘密鍵を含む`.pfx`は配布しません。
