@@ -55,6 +55,21 @@ public sealed class ProjectStructureTests
     }
 
     [TestMethod]
+    public void Codex応答は5時間を超える長期枠も週間枠として取得する()
+    {
+        const string json = """
+            {"result":{"rateLimits":{"primary":{"usedPercent":74,"windowDurationMins":43200,"resetsAt":1700000000},"secondary":null}}}
+            """;
+
+        IReadOnlyList<UsageWindow> windows = CodexRateLimitParser.Parse(json);
+
+        Assert.AreEqual(1, windows.Count);
+        Assert.AreEqual(UsageWindowType.Weekly, windows[0].WindowType);
+        Assert.AreEqual(43200, windows[0].WindowDurationMinutes);
+        Assert.AreEqual(26d, windows[0].RemainingPercent);
+    }
+
+    [TestMethod]
     public void ClaudeStatusLineは必要な2枠だけ抽出する()
     {
         const string json = """

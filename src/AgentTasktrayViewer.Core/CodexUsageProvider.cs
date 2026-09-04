@@ -187,6 +187,11 @@ public static class CodexRateLimitParser
 
     private static void AddIfRecognized(List<UsageWindow> windows, JsonElement value, DateTimeOffset? now)
     {
+        if (value.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
         if (!value.TryGetProperty("windowDurationMins", out JsonElement duration) ||
             !duration.TryGetInt32(out int durationMinutes) ||
             !value.TryGetProperty("usedPercent", out JsonElement used) ||
@@ -198,7 +203,7 @@ public static class CodexRateLimitParser
         UsageWindowType? type = durationMinutes switch
         {
             300 => UsageWindowType.FiveHour,
-            10080 => UsageWindowType.Weekly,
+            > 300 => UsageWindowType.Weekly,
             _ => null
         };
         if (type is null)
@@ -211,6 +216,6 @@ public static class CodexRateLimitParser
             ? resetValue
             : null;
         windows.Add(UsageWindow.Available(UsageProvider.Codex, type.Value, usedPercent,
-            UnixTimeConverter.ToLocal(resetsAt), now));
+            UnixTimeConverter.ToLocal(resetsAt), now, durationMinutes));
     }
 }

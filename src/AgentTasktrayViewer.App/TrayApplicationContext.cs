@@ -23,6 +23,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly SynchronizationContext _uiContext;
     private readonly ToolStripMenuItem _pauseMenuItem;
     private readonly ToolStripMenuItem _startWithWindowsMenuItem;
+    private readonly bool _firstRun;
     private ToolStripMenuItem? _codexDiagnosticItem;
     private ToolStripMenuItem? _claudeDiagnosticItem;
     private ToolStripMenuItem? _codexInstallItem;
@@ -31,17 +32,23 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private bool _claudeDataAvailable;
     private bool _codexWarningShown;
     private bool _claudeWarningShown;
+    private bool _codexDefaultHidden;
+    private bool _claudeDefaultHidden;
+    private SettingsForm? _settingsForm;
     private bool _wasInactive;
     private bool _isExiting;
 
     public TrayApplicationContext()
     {
         _settingsManager = new SettingsManager();
+        _firstRun = !File.Exists(_settingsManager.SettingsPath);
         _settings = _settingsManager.Load();
+        ApplyMissingProviderDefaults();
         _codexProvider = new CodexUsageProvider(_codexExecutableLocator);
         _uiContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
         _claudeProvider = new ClaudeUsageProvider(_settingsManager.ApplicationDataDirectory);
         _iconManager = new TrayIconManager(_settings);
+        _iconManager.SettingsIcon.Click += (_, _) => OpenSettings();
         _iconManager.VisibilityChanged += OnVisibilityChanged;
 
         ContextMenuStrip menu = BuildMenu(out _pauseMenuItem, out _startWithWindowsMenuItem);
@@ -328,6 +335,16 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         if (!_iconManager.IsProviderVisible(UsageProvider.Codex))
         {
+            if (_firstRun && _codexDefaultHidden && _codexExecutableLocator.Find() is null)
+            {
+                SetDiagnostic(_codexDiagnosticItem, "Codex CLI: 未検出（既定で非表示）", _codexInstallItem, true);
+                if (notify && !_codexWarningShown)
+                {
+                    _codexWarningShown = true;
+                    _iconManager.ShowWarning(UsageProvider.Codex, "Codex CLIが見つかりません", "Codexのアイコンは非表示にしました。接続状態メニューから導入案内を開けます。");
+                }
+                return;
+            }
             SetDiagnostic(_codexDiagnosticItem, "Codex: アイコン非表示（確認対象外）", _codexInstallItem, false);
             return;
         }
@@ -362,6 +379,16 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         if (!_iconManager.IsProviderVisible(UsageProvider.Claude))
         {
+            if (_firstRun && _claudeDefaultHidden && _claudeCliLocator.Find() is null)
+            {
+                SetDiagnostic(_claudeDiagnosticItem, "Claude Code: CLI未検出（既定で非表示）", _claudeInstallItem, true);
+                if (notify && !_claudeWarningShown)
+                {
+                    _claudeWarningShown = true;
+                    _iconManager.ShowWarning(UsageProvider.Claude, "Claude Codeが見つかりません", "Claude Codeのアイコンは非表示にしました。接続状態メニューから導入案内を開けます。");
+                }
+                return;
+            }
             SetDiagnostic(_claudeDiagnosticItem, "Claude Code: アイコン非表示（確認対象外）", _claudeInstallItem, false);
             return;
         }
@@ -414,6 +441,53 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             installItem.Visible = showInstallItem;
         }
+    }
+
+    private void ApplyMissingProviderDefaults()
+    {
+        if (!_firstRun)
+        {
+            return;
+        }
+
+        if (_codexExecutableLocator.Find() is null)
+        {
+            _settings.ShowCodexFiveHour = false;
+            _settings.ShowCodexWeekly = false;
+            _codexDefaultHidden = true;
+        }
+
+        if (_claudeCliLocator.Find() is null)
+        {
+            _settings.ShowClaudeFiveHour = false;
+            _settings.ShowClaudeWeekly = false;
+            _claudeDefaultHidden = true;
+        }
+    }
+
+    private void OpenSettings()
+    {
+        if (_settingsForm is not null && !_settingsForm.IsDisposed)
+        {
+            _settingsForm.WindowState = FormWindowState.Normal;
+            _settingsForm.Activate();
+            return;
+        }
+
+        _settingsForm = new SettingsForm(
+            kind => _iconManager.IsVisible(kind),
+            (kind, isVisible) =>
+            {
+                bool changed = _iconManager.TrySetVisibility(kind, isVisible);
+                if (changed)
+                {
+                    UpdateProviderDiagnostics(true);
+                }
+                return changed;
+            },
+            () => _ = RefreshAllAsync(true));
+        _settingsForm.FormClosed += (_, _) => _settingsForm = null;
+        _settingsForm.Show();
     }
 
     private async Task UpdateAllAsync()
