@@ -137,7 +137,8 @@ public sealed class ClaudeUsageProvider : IUsageProvider
         entry is null
             ? UsageWindow.Unavailable(UsageProvider.Claude, type, receivedAt)
             : UsageWindow.Available(UsageProvider.Claude, type, entry.UsedPercentage,
-                UnixTimeConverter.ToLocal(entry.ResetsAt), receivedAt);
+                UnixTimeConverter.ToLocal(entry.ResetsAt), receivedAt,
+                type == UsageWindowType.FiveHour ? 300 : 10080);
 
     private static IReadOnlyList<UsageWindow> UnavailableWindows() => new[]
     {
