@@ -53,20 +53,16 @@ internal static class IconFactory
                     graphics.FillPath(background, iconPath);
                 }
 
-                if (coloredBackground || warning)
+                if (warning)
                 {
-                    Color borderColor = !window.IsAvailable
-                        ? serviceColor
-                        : window.UsedPercent >= 90
-                            ? Color.FromArgb(220, 38, 38)
-                            : window.UsedPercent >= 70
-                                ? Color.FromArgb(245, 158, 11)
-                                : Color.White;
+                    Color borderColor = window.UsedPercent >= 90
+                        ? Color.FromArgb(220, 38, 38)
+                        : Color.FromArgb(245, 158, 11);
                     using var pen = new Pen(borderColor, borderWidth);
                     graphics.DrawPath(pen, iconPath);
                 }
 
-                float inset = coloredBackground || warning ? borderWidth + 0.5f : 0.75f;
+                float inset = warning ? borderWidth + 0.5f : 0.75f;
                 textBounds = RectangleF.Inflate(new RectangleF(0, 0, 32, 32), -inset, -inset);
             }
 
