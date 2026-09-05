@@ -66,7 +66,7 @@ internal static class IconFactory
                     graphics.DrawPath(pen, iconPath);
                 }
 
-                float inset = coloredBackground || warning ? borderWidth + 0.5f : 0.25f;
+                float inset = coloredBackground || warning ? borderWidth + 0.5f : 0.75f;
                 textBounds = RectangleF.Inflate(new RectangleF(0, 0, 32, 32), -inset, -inset);
             }
 
@@ -77,6 +77,14 @@ internal static class IconFactory
             using var textBrush = new SolidBrush(textColor);
             using var fontFamily = ResolveFontFamily(fontFamilyName);
             using GraphicsPath textPath = CreateMaximizedTextPath(label, fontFamily, textBounds);
+            if (!coloredBackground)
+            {
+                using var outline = new Pen(Color.FromArgb(235, 255, 255, 255), 1f)
+                {
+                    LineJoin = LineJoin.Round
+                };
+                graphics.DrawPath(outline, textPath);
+            }
             graphics.FillPath(textBrush, textPath);
         }
 
