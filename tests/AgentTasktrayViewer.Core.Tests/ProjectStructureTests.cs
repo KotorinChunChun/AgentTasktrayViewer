@@ -105,6 +105,21 @@ public sealed class ProjectStructureTests
     }
 
     [TestMethod]
+    public void アイコン表示設定の既定値と不正値補正が有効である()
+    {
+        var settings = new AppSettings
+        {
+            IconVisualStyle = (TrayIconVisualStyle)999,
+            IconFontFamily = " "
+        };
+
+        settings.Normalize();
+
+        Assert.AreEqual(TrayIconVisualStyle.ColoredBackground, settings.IconVisualStyle);
+        Assert.AreEqual("Segoe UI", settings.IconFontFamily);
+    }
+
+    [TestMethod]
     public async Task ClaudeStatusLine受信は最小キャッシュを保存する()
     {
         string directory = Path.Combine(Path.GetTempPath(), "AgentTasktrayViewerTests", Guid.NewGuid().ToString("N"));

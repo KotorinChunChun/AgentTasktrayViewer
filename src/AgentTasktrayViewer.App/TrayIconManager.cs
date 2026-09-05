@@ -39,11 +39,15 @@ internal sealed class TrayIconManager : IDisposable
     };
 
     private readonly Dictionary<TrayIconKind, UsageWindow> _windows = new();
+    private TrayIconVisualStyle _visualStyle;
+    private string _fontFamilyName;
     private ContextMenuStrip? _menu;
     private bool _disposed;
 
     public TrayIconManager(AppSettings settings)
     {
+        _visualStyle = settings.IconVisualStyle;
+        _fontFamilyName = settings.IconFontFamily;
         CodexFiveHourIcon = CreateIcon(UsageProvider.Codex, UsageWindowType.FiveHour, Colors[TrayIconKind.CodexFiveHour]);
         CodexWeeklyIcon = CreateIcon(UsageProvider.Codex, UsageWindowType.Weekly, Colors[TrayIconKind.CodexWeekly]);
         ClaudeFiveHourIcon = CreateIcon(UsageProvider.Claude, UsageWindowType.FiveHour, Colors[TrayIconKind.ClaudeFiveHour]);
@@ -134,9 +138,19 @@ internal sealed class TrayIconManager : IDisposable
         _windows[kind] = window;
         NotifyIcon icon = GetIcon(kind);
         Icon? previous = icon.Icon;
-        icon.Icon = IconFactory.Create(window, Colors[kind]);
+        icon.Icon = IconFactory.Create(window, Colors[kind], _visualStyle, _fontFamilyName);
         previous?.Dispose();
         icon.Text = BuildToolTip(window);
+    }
+
+    public void ApplyAppearance(TrayIconVisualStyle visualStyle, string fontFamilyName)
+    {
+        _visualStyle = visualStyle;
+        _fontFamilyName = fontFamilyName;
+        foreach (UsageWindow window in _windows.Values.ToArray())
+        {
+            Update(window);
+        }
     }
 
     public void RefreshStatusText()
@@ -184,7 +198,7 @@ internal sealed class TrayIconManager : IDisposable
         UsageWindow window = UsageWindow.Unavailable(provider, windowType);
         var icon = new NotifyIcon
         {
-            Icon = IconFactory.Create(window, color),
+            Icon = IconFactory.Create(window, color, _visualStyle, _fontFamilyName),
             Text = BuildToolTip(window)
         };
         icon.Click += (_, _) => { };

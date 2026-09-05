@@ -3,6 +3,12 @@ using System.Text.Json.Serialization;
 
 namespace AgentTasktrayViewer.Core;
 
+public enum TrayIconVisualStyle
+{
+    ColoredBackground,
+    ColoredText
+}
+
 public sealed class AppSettings
 {
     public bool ShowCodexFiveHour { get; set; } = true;
@@ -14,6 +20,11 @@ public sealed class AppSettings
     public bool StartWithWindows { get; set; }
     public bool ClaudeIntegrationEnabled { get; set; }
 
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public TrayIconVisualStyle IconVisualStyle { get; set; } = TrayIconVisualStyle.ColoredBackground;
+
+    public string IconFontFamily { get; set; } = "Segoe UI";
+
     [JsonIgnore]
     public TimeSpan UpdateInterval => TimeSpan.FromMinutes(UpdateIntervalMinutes);
 
@@ -22,6 +33,14 @@ public sealed class AppSettings
         if (!new[] { 1, 3, 5, 10 }.Contains(UpdateIntervalMinutes))
         {
             UpdateIntervalMinutes = 5;
+        }
+        if (!Enum.IsDefined(IconVisualStyle))
+        {
+            IconVisualStyle = TrayIconVisualStyle.ColoredBackground;
+        }
+        if (string.IsNullOrWhiteSpace(IconFontFamily) || IconFontFamily.Length > 64)
+        {
+            IconFontFamily = "Segoe UI";
         }
     }
 }
