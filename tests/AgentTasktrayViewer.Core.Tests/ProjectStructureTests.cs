@@ -115,8 +115,35 @@ public sealed class ProjectStructureTests
 
         settings.Normalize();
 
-        Assert.AreEqual(TrayIconVisualStyle.ColoredBackground, settings.IconVisualStyle);
+        Assert.AreEqual(TrayIconVisualStyle.ColoredText, settings.IconVisualStyle);
         Assert.AreEqual("Segoe UI", settings.IconFontFamily);
+    }
+
+    [TestMethod]
+    public void アイコン表示設定を保存して復元できる()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "AgentTasktrayViewerTests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var manager = new SettingsManager(directory);
+            manager.Save(new AppSettings
+            {
+                IconVisualStyle = TrayIconVisualStyle.ColoredBackground,
+                IconFontFamily = "Arial Narrow"
+            });
+
+            AppSettings settings = manager.Load();
+
+            Assert.AreEqual(TrayIconVisualStyle.ColoredBackground, settings.IconVisualStyle);
+            Assert.AreEqual("Arial Narrow", settings.IconFontFamily);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, true);
+            }
+        }
     }
 
     [TestMethod]

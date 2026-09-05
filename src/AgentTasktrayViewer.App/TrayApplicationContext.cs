@@ -23,6 +23,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly SynchronizationContext _uiContext;
     private readonly ToolStripMenuItem _pauseMenuItem;
     private readonly ToolStripMenuItem _startWithWindowsMenuItem;
+    private readonly IReadOnlyList<string> _availableIconFontFamilies;
     private readonly bool _firstRun;
     private ToolStripMenuItem? _codexDiagnosticItem;
     private ToolStripMenuItem? _claudeDiagnosticItem;
@@ -43,6 +44,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _settingsManager = new SettingsManager();
         _firstRun = !File.Exists(_settingsManager.SettingsPath);
         _settings = _settingsManager.Load();
+        _availableIconFontFamilies = IconFactory.GetAvailableRecommendedFontFamilies();
         ApplyMissingProviderDefaults();
         _codexProvider = new CodexUsageProvider(_codexExecutableLocator);
         _uiContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
@@ -126,6 +128,18 @@ internal sealed class TrayApplicationContext : ApplicationContext
         AddVisibilityItem(visibility, "Claude 週間", TrayIconKind.ClaudeWeekly);
         menu.Items.Add(visibility);
 
+        var visualStyle = new ToolStripMenuItem("アイコンスタイル");
+        AddVisualStyleItem(visualStyle, "背景色版", TrayIconVisualStyle.ColoredBackground);
+        AddVisualStyleItem(visualStyle, "文字色版（背景なし）", TrayIconVisualStyle.ColoredText);
+        menu.Items.Add(visualStyle);
+
+        var iconFont = new ToolStripMenuItem("アイコンフォント");
+        foreach (string fontFamily in _availableIconFontFamilies)
+        {
+            AddFontFamilyItem(iconFont, fontFamily);
+        }
+        menu.Items.Add(iconFont);
+
         var interval = new ToolStripMenuItem("更新間隔");
         foreach (int minutes in new[] { 1, 3, 5, 10 })
         {
@@ -193,6 +207,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
         menu.Items.Add(CreateBrowserItem("Codex 使用量ページを開く", "https://chatgpt.com/codex/settings/usage"));
         menu.Items.Add(CreateBrowserItem("Claude 使用量ページを開く", "https://claude.ai/settings/usage"));
         menu.Items.Add(new ToolStripSeparator());
+        var settings = new ToolStripMenuItem("設定...");
+        settings.Click += (_, _) => OpenSettings();
+        menu.Items.Add(settings);
         var exit = new ToolStripMenuItem("終了");
         exit.Click += (_, _) => ExitThread();
         menu.Items.Add(exit);
@@ -203,9 +220,44 @@ internal sealed class TrayApplicationContext : ApplicationContext
             {
                 item.Checked = (int)item.Tag! == _settings.UpdateIntervalMinutes;
             }
+            foreach (ToolStripMenuItem item in visualStyle.DropDownItems)
+            {
+                item.Checked = (TrayIconVisualStyle)item.Tag! == _settings.IconVisualStyle;
+            }
+            foreach (ToolStripMenuItem item in iconFont.DropDownItems)
+            {
+                item.Checked = string.Equals((string)item.Tag!, _settings.IconFontFamily, StringComparison.OrdinalIgnoreCase);
+            }
             _iconManager.RefreshStatusText();
         };
         return menu;
+    }
+
+    private void AddVisualStyleItem(ToolStripMenuItem parent, string text, TrayIconVisualStyle visualStyle)
+    {
+        var item = new ToolStripMenuItem(text) { Tag = visualStyle };
+        item.Click += (_, _) => SetIconAppearance(visualStyle, _settings.IconFontFamily);
+        parent.DropDownItems.Add(item);
+    }
+
+    private void AddFontFamilyItem(ToolStripMenuItem parent, string fontFamily)
+    {
+        var item = new ToolStripMenuItem(fontFamily)
+        {
+            Tag = fontFamily,
+            Font = new Font(fontFamily, SystemFonts.MenuFont?.Size ?? 9f)
+        };
+        item.Click += (_, _) => SetIconAppearance(_settings.IconVisualStyle, fontFamily);
+        parent.DropDownItems.Add(item);
+    }
+
+    private void SetIconAppearance(TrayIconVisualStyle visualStyle, string fontFamily)
+    {
+        _settings.IconVisualStyle = visualStyle;
+        _settings.IconFontFamily = fontFamily;
+        _settings.Normalize();
+        _settingsManager.Save(_settings);
+        _iconManager.ApplyAppearance(_settings.IconVisualStyle, _settings.IconFontFamily);
     }
 
     private void AddVisibilityItem(ToolStripMenuItem parent, string text, TrayIconKind kind)
@@ -485,7 +537,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 }
                 return changed;
             },
-            () => _ = RefreshAllAsync(true));
+            () => _ = RefreshAllAsync(true),
+            _settings.IconVisualStyle,
+            _settings.IconFontFamily,
+            _availableIconFontFamilies,
+            visualStyle => SetIconAppearance(visualStyle, _settings.IconFontFamily),
+            fontFamily => SetIconAppearance(_settings.IconVisualStyle, fontFamily));
         _settingsForm.FormClosed += (_, _) => _settingsForm = null;
         _settingsForm.Show();
     }

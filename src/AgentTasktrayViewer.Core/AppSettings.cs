@@ -21,7 +21,7 @@ public sealed class AppSettings
     public bool ClaudeIntegrationEnabled { get; set; }
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
-    public TrayIconVisualStyle IconVisualStyle { get; set; } = TrayIconVisualStyle.ColoredBackground;
+    public TrayIconVisualStyle IconVisualStyle { get; set; } = TrayIconVisualStyle.ColoredText;
 
     public string IconFontFamily { get; set; } = "Segoe UI";
 
@@ -36,7 +36,7 @@ public sealed class AppSettings
         }
         if (!Enum.IsDefined(IconVisualStyle))
         {
-            IconVisualStyle = TrayIconVisualStyle.ColoredBackground;
+            IconVisualStyle = TrayIconVisualStyle.ColoredText;
         }
         if (string.IsNullOrWhiteSpace(IconFontFamily) || IconFontFamily.Length > 64)
         {

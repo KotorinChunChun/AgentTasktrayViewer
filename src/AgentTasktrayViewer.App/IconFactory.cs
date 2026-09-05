@@ -15,6 +15,17 @@ internal static class IconFactory
         "Bahnschrift"
     };
 
+    public static IReadOnlyList<string> GetAvailableRecommendedFontFamilies()
+    {
+        using var installedFonts = new InstalledFontCollection();
+        var installedNames = installedFonts.Families
+            .Select(family => family.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return RecommendedFontFamilies
+            .Where(installedNames.Contains)
+            .ToArray();
+    }
+
     public static Icon Create(
         UsageWindow window,
         Color serviceColor,
