@@ -11,6 +11,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentTasktrayViewer.Core\AgentTasktrayViewer.Core.csproj" />
+    <Compile Include="../../src/AgentTasktrayViewer.App/LaunchOptions.cs" Link="LaunchOptions.cs" />
   </ItemGroup>
 </Project>
 

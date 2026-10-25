@@ -34,6 +34,7 @@ Thumbs.db
 
 # ログ・実行時一時データ
 *.log
+/dev/history/*/logs/
 *.sqlite
 tmp/
 

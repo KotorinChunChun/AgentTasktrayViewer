@@ -24,7 +24,7 @@ internal static class Program
             WriteCrashLog("Program.Main", exception);
             MessageBox.Show(
                 $"起動中にエラーが発生しました。詳細を次のログへ記録しました。\n\n{GetLogPath()}\n\n{exception.Message}",
-                "AgentTasktrayViewer",
+                WindowTitle.Create("エラー"),
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
@@ -42,15 +42,22 @@ internal static class Program
             return;
         }
 
+        var options = LaunchOptions.Parse(args);
         using var mutex = new Mutex(true, "AgentTasktrayViewer.NormalMode", out bool createdNew);
         if (!createdNew)
         {
+            if (!options.Hidden)
+                KotorinToys.Integration.ManagementEndpoint.ShowExisting("agent-tasktray-viewer");
             return;
         }
 
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
         ApplicationConfiguration.Initialize();
-        Application.Run(new TrayApplicationContext());
+        try
+        {
+            Application.Run(new TrayApplicationContext(options));
+        }
+        finally { mutex.ReleaseMutex(); }
     }
 
     private static void WriteCrashLog(string source, Exception? exception)

@@ -38,10 +38,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private SettingsForm? _settingsForm;
     private bool _wasInactive;
     private bool _isExiting;
+    private readonly Control _managementDispatcher = new();
+    private readonly KotorinToys.Integration.ManagementEndpoint _management;
 
-    public TrayApplicationContext()
+    public TrayApplicationContext(LaunchOptions options)
     {
-        _settingsManager = new SettingsManager();
+        _settingsManager = new SettingsManager(options.SettingsDirectory);
         _firstRun = !File.Exists(_settingsManager.SettingsPath);
         _settings = _settingsManager.Load();
         _availableIconFontFamilies = IconFactory.GetAvailableRecommendedFontFamilies();
@@ -60,16 +62,21 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _updateTimer = new System.Windows.Forms.Timer { Interval = (int)_settings.UpdateInterval.TotalMilliseconds };
         _updateTimer.Tick += (_, _) => _ = UpdateCodexIfNeededAsync();
-        _updateTimer.Start();
+        if (!options.Passive) _updateTimer.Start();
 
         _activityTimer = new System.Windows.Forms.Timer { Interval = 15_000 };
         _activityTimer.Tick += (_, _) => CheckActivity();
-        _activityTimer.Start();
+        if (!options.Passive) _activityTimer.Start();
 
-        _ipcServer.Start(OnClaudeUsageNotificationAsync);
+        if (!options.Passive) _ipcServer.Start(OnClaudeUsageNotificationAsync);
         _pauseMenuItem.Checked = _settings.PauseWhenInactive;
         _startWithWindowsMenuItem.Checked = _settings.StartWithWindows;
-        _ = InitializeAsync();
+        _management = new KotorinToys.Integration.ManagementEndpoint(
+            "agent-tasktray-viewer", _managementDispatcher, OpenSettings, ExitThread,
+            () => Application.OpenForms.Cast<Form>().Any(form => form.Visible && form.Modal)
+                ? "ダイアログを閉じてから停止してください。" : null);
+        if (!options.Hidden) OpenSettings();
+        if (!options.Passive) _ = InitializeAsync();
     }
 
     protected override void ExitThreadCore()
@@ -80,13 +87,16 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
         _isExiting = true;
         _shutdown.Cancel();
+        _management.Dispose();
+        _managementDispatcher.Dispose();
+        _settingsForm?.Close();
         _updateTimer.Stop();
         _activityTimer.Stop();
         _ipcServer.Dispose();
         _iconManager.Dispose();
         _updateTimer.Dispose();
         _activityTimer.Dispose();
-        _updateGate.Dispose();
+        // キャンセル中の更新がfinallyでReleaseするため、ここでは破棄しない。
         _shutdown.Dispose();
         base.ExitThreadCore();
     }
@@ -545,6 +555,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
             fontFamily => SetIconAppearance(_settings.IconVisualStyle, fontFamily));
         _settingsForm.FormClosed += (_, _) => _settingsForm = null;
         _settingsForm.Show();
+        _settingsForm.BringToFront();
+        _settingsForm.Activate();
     }
 
     private async Task UpdateAllAsync()

@@ -22,7 +22,7 @@ internal sealed class SettingsForm : Form
         _isVisible = isVisible;
         _setVisibility = setVisibility;
 
-        Text = "AgentTasktrayViewer 設定";
+        Text = WindowTitle.Create("設定");
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
