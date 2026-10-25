@@ -4,6 +4,7 @@ namespace AgentTasktrayViewer;
 
 internal static class Program
 {
+    private static string? _settingsDirectory;
     [STAThread]
     private static void Main(string[] args)
     {
@@ -43,6 +44,7 @@ internal static class Program
         }
 
         var options = LaunchOptions.Parse(args);
+        _settingsDirectory = options.SettingsDirectory;
         using var mutex = new Mutex(true, "AgentTasktrayViewer.NormalMode", out bool createdNew);
         if (!createdNew)
         {
@@ -77,7 +79,6 @@ internal static class Program
     }
 
     private static string GetLogPath() => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "AgentTasktrayViewer",
+        _settingsDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "AgentTasktrayViewer"),
         "app.log");
 }
