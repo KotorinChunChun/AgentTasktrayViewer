@@ -18,7 +18,7 @@
 自動起動は新規OFF。既存MSIXの単体StartupTaskは保持する。未パッケージ版の自動起動はKotorinToys側で管理し、単体MSIXの予約と二重に有効化しない。今回はOSの予約・配布形式を変更しない。
 
 ```powershell
-cd C:\develop\AgentTasktrayViewer
+cd C:\develop\KotorinToys\tools\AgentTasktrayViewer
 dotnet build AgentTasktrayViewer.sln -c Debug
 dotnet test AgentTasktrayViewer.sln -c Debug --no-build
 ```
