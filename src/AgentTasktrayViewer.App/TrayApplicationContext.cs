@@ -39,23 +39,36 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private bool _wasInactive;
     private bool _isExiting;
     private readonly Control _managementDispatcher = new();
-    private readonly KotorinToys.Integration.ManagementEndpoint _management;
+    private readonly KotorinToys.Integration.ManagementEndpoint? _management;
+    private readonly bool _isolatedTest;
+    internal ContextMenuStrip TestMenu { get; }
+    internal SettingsForm? TestSettings => _settingsForm;
 
-    public TrayApplicationContext(LaunchOptions options)
+    public TrayApplicationContext(LaunchOptions options, bool isolatedTest = false)
     {
+        if (isolatedTest && (!options.Passive || string.IsNullOrWhiteSpace(options.SettingsDirectory)))
+            throw new ArgumentException("隔離試験には専用保存先とpassiveが必要です。");
+        _isolatedTest = isolatedTest;
         _settingsManager = new SettingsManager(options.SettingsDirectory);
         _firstRun = !File.Exists(_settingsManager.SettingsPath);
         _settings = _settingsManager.Load();
         _availableIconFontFamilies = IconFactory.GetAvailableRecommendedFontFamilies();
-        ApplyMissingProviderDefaults();
+        if (!_isolatedTest) ApplyMissingProviderDefaults();
         _codexProvider = new CodexUsageProvider(_codexExecutableLocator);
         _uiContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
         _claudeProvider = new ClaudeUsageProvider(_settingsManager.ApplicationDataDirectory);
-        _iconManager = new TrayIconManager(_settings);
+        _iconManager = new TrayIconManager(_settings, publishIcons: !_isolatedTest);
         _iconManager.SettingsIcon.Click += (_, _) => OpenSettings();
         _iconManager.VisibilityChanged += OnVisibilityChanged;
 
         ContextMenuStrip menu = BuildMenu(out _pauseMenuItem, out _startWithWindowsMenuItem);
+        TestMenu = menu;
+        if (_isolatedTest)
+        {
+            foreach (ToolStripItem item in menu.Items)
+                if (item.Text is "Windows起動時に開始" or "Claude Code連携" || item.Text?.EndsWith("を開く") == true)
+                    item.Enabled = false;
+        }
         _iconManager.AttachMenu(menu);
         _iconManager.ApplyVisibility(_settings);
         _settingsManager.Save(_settings);
@@ -71,7 +84,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         if (!options.Passive) _ipcServer.Start(OnClaudeUsageNotificationAsync);
         _pauseMenuItem.Checked = _settings.PauseWhenInactive;
         _startWithWindowsMenuItem.Checked = _settings.StartWithWindows;
-        _management = new KotorinToys.Integration.ManagementEndpoint(
+        if (!_isolatedTest) _management = new KotorinToys.Integration.ManagementEndpoint(
             "agent-tasktray-viewer", _managementDispatcher, OpenSettings, ExitThread,
             () => Application.OpenForms.Cast<Form>().Any(form => form.Visible && form.Modal)
                 ? "ダイアログを閉じてから停止してください。" : null);
@@ -87,7 +100,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
         _isExiting = true;
         _shutdown.Cancel();
-        _management.Dispose();
+        _management?.Dispose();
         _managementDispatcher.Dispose();
         _settingsForm?.Close();
         _updateTimer.Stop();
@@ -204,6 +217,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         });
         menu.Opening += (_, _) =>
         {
+            if (_isolatedTest) return;
             claudeIntegrationStatus.Text = $"状態: {FormatIntegrationStatus(_claudeIntegration.GetStatus())}";
             DateTimeOffset? receivedAt = _claudeProvider.GetLastReceivedAt();
             claudeLastReceived.Text = receivedAt is null
@@ -389,6 +403,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void UpdateProviderDiagnostics(bool notify)
     {
+        if (_isolatedTest)
+        {
+            SetDiagnostic(_codexDiagnosticItem, "Codex CLI: 検出・更新済み", _codexInstallItem, false);
+            SetDiagnostic(_claudeDiagnosticItem, "Claude Code: データ未受信", _claudeInstallItem, false);
+            return;
+        }
         UpdateCodexDiagnostics(notify);
         UpdateClaudeDiagnostics(notify);
     }
@@ -561,6 +581,16 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private async Task UpdateAllAsync()
     {
+        if (_isolatedTest)
+        {
+            var stamp = new DateTimeOffset(2026, 11, 8, 12, 0, 0, TimeSpan.FromHours(9));
+            ApplyWindows(new[] {
+                UsageWindow.Available(UsageProvider.Codex, UsageWindowType.FiveHour, 25, stamp.AddHours(5), stamp),
+                UsageWindow.Available(UsageProvider.Codex, UsageWindowType.Weekly, 60, stamp.AddDays(7), stamp),
+                UsageWindow.Unavailable(UsageProvider.Claude, UsageWindowType.FiveHour, stamp),
+                UsageWindow.Unavailable(UsageProvider.Claude, UsageWindowType.Weekly, stamp) });
+            return;
+        }
         if (!await _updateGate.WaitAsync(0, _shutdown.Token))
         {
             return;

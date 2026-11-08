@@ -43,9 +43,12 @@ internal sealed class TrayIconManager : IDisposable
     private string _fontFamilyName;
     private ContextMenuStrip? _menu;
     private bool _disposed;
+    private readonly bool _publishIcons;
+    private readonly Dictionary<TrayIconKind, bool> _visibility = new();
 
-    public TrayIconManager(AppSettings settings)
+    public TrayIconManager(AppSettings settings, bool publishIcons = true)
     {
+        _publishIcons = publishIcons;
         _visualStyle = settings.IconVisualStyle;
         _fontFamilyName = settings.IconFontFamily;
         CodexFiveHourIcon = CreateIcon(UsageProvider.Codex, UsageWindowType.FiveHour, Colors[TrayIconKind.CodexFiveHour]);
@@ -75,12 +78,12 @@ internal sealed class TrayIconManager : IDisposable
     public event EventHandler<VisibilityStateEventArgs>? VisibilityStateChanged;
     public event EventHandler<StatusTextEventArgs>? StatusTextChanged;
 
-    public bool IsVisible(TrayIconKind kind) => GetIcon(kind).Visible;
+    public bool IsVisible(TrayIconKind kind) => _visibility.GetValueOrDefault(kind);
 
     public bool IsProviderVisible(UsageProvider provider) => provider switch
     {
-        UsageProvider.Codex => CodexFiveHourIcon.Visible || CodexWeeklyIcon.Visible,
-        UsageProvider.Claude => ClaudeFiveHourIcon.Visible || ClaudeWeeklyIcon.Visible,
+        UsageProvider.Codex => IsVisible(TrayIconKind.CodexFiveHour) || IsVisible(TrayIconKind.CodexWeekly),
+        UsageProvider.Claude => IsVisible(TrayIconKind.ClaudeFiveHour) || IsVisible(TrayIconKind.ClaudeWeekly),
         _ => false
     };
 
@@ -184,13 +187,14 @@ internal sealed class TrayIconManager : IDisposable
 
     private void SetVisible(TrayIconKind kind, bool isVisible)
     {
-        GetIcon(kind).Visible = isVisible;
+        _visibility[kind] = isVisible;
+        GetIcon(kind).Visible = _publishIcons && isVisible;
         VisibilityStateChanged?.Invoke(this, new VisibilityStateEventArgs(kind, isVisible));
     }
 
     private void UpdateSettingsIconVisibility()
     {
-        SettingsIcon.Visible = AllIcons().All(icon => !icon.Visible);
+        SettingsIcon.Visible = _publishIcons && _visibility.Values.All(visible => !visible);
     }
 
     private NotifyIcon CreateIcon(UsageProvider provider, UsageWindowType windowType, Color color)

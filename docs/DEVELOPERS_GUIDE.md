@@ -31,3 +31,18 @@ pwsh -NoProfile -File scripts/publish-msix.ps1
 開発用の自己署名証明書は信頼ストアへ登録していないため、`SignTool verify /pa`では信頼チェーン警告になる場合があります。発行処理で`Successfully signed`が表示され、署名証明書のPublisher・拇印・秘密鍵・Code Signing用途が一致することを確認します。
 
 署名付きMSIXを発行すると、MSIXと同じ`release/Publish`へ署名者の公開証明書（`.cer`）も自動出力します。現在の開発用構成では`KotorinChunChun.cer`です。配布先ではこの`.cer`だけを信頼済みユーザー（`Trusted People`）へ登録します。秘密鍵を含む`.pfx`は配布しません。
+
+
+## 通知領域を手動操作しないCLI検証
+
+```powershell
+cd C:\develop\KotorinToys\tools\AgentTasktrayViewer
+pwsh -File ./scripts/Test-Ui.ps1
+pwsh -File ./scripts/Test-Ui.ps1 -Show menu
+```
+
+通常実行は実WinFormsのメニュー／設定画面で11項目を自動検証し、終了値0と専用出力先のresult.jsonを返します。失敗は1、不正引数・既存出力先は2です。Showはmenu、codex、diagnostics、settings、iconsを指定でき、CLI検証後にその画面を開きます。閉じると終了します。アイコン例は製品と同じIconFactoryで描画します。
+
+試験用EXEだけが内部の隔離入口を利用します。通知領域のアイコン・管理IPC・定期取得は作成せず、Codex/Claudeの実接続、連携設定、Windows起動登録、外部ページは使用しません。製品のメニューと保存処理をそのまま使い、設定は毎回新しい専用ディレクトリへ保存します。実トレイの位置・サービス認証・実取得の確認は別の受入です。
+
+通常の製品起動には変更ありません。CLIの隔離オプションを通常利用者向け引数に追加していません。
