@@ -48,4 +48,10 @@ CodexおよびClaudeの認証情報を直接読み取りません。使用量取
 
 - [利用者ガイド](docs/USERS_GUIDE.md)
 - [FAQ](docs/FAQ.md)
-- [ライセンス](LICENSE)
+- [MITライセンス](LICENSE)
+
+## 使用言語とライブラリ
+
+- 使用言語はC#です。
+- .NET 10、Windows Forms。JSONの読み書きには.NET標準のSystem.Text.Jsonを使います。
+- 詳細な依存定義は、開発用ソースのプロジェクトファイルで確認できます。
