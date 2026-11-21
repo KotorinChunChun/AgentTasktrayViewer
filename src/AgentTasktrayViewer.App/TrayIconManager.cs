@@ -1,0 +1,278 @@
+using AgentTasktrayViewer.Core;
+
+namespace AgentTasktrayViewer;
+
+internal enum TrayIconKind
+{
+    CodexFiveHour,
+    CodexWeekly,
+    ClaudeFiveHour,
+    ClaudeWeekly
+}
+
+internal sealed class VisibilityStateEventArgs(TrayIconKind kind, bool isVisible) : EventArgs
+{
+    public TrayIconKind Kind { get; } = kind;
+    public bool IsVisible { get; } = isVisible;
+}
+
+internal sealed class StatusTextEventArgs(
+    string codexFiveHour,
+    string codexWeekly,
+    string claudeFiveHour,
+    string claudeWeekly) : EventArgs
+{
+    public string CodexFiveHour { get; } = codexFiveHour;
+    public string CodexWeekly { get; } = codexWeekly;
+    public string ClaudeFiveHour { get; } = claudeFiveHour;
+    public string ClaudeWeekly { get; } = claudeWeekly;
+}
+
+internal sealed class TrayIconManager : IDisposable
+{
+    private static readonly IReadOnlyDictionary<TrayIconKind, Color> Colors = new Dictionary<TrayIconKind, Color>
+    {
+        [TrayIconKind.CodexFiveHour] = Color.FromArgb(37, 99, 235),
+        [TrayIconKind.CodexWeekly] = Color.FromArgb(124, 58, 237),
+        [TrayIconKind.ClaudeFiveHour] = Color.FromArgb(217, 119, 6),
+        [TrayIconKind.ClaudeWeekly] = Color.FromArgb(15, 118, 110)
+    };
+
+    private readonly Dictionary<TrayIconKind, UsageWindow> _windows = new();
+    private TrayIconVisualStyle _visualStyle;
+    private string _fontFamilyName;
+    private ContextMenuStrip? _menu;
+    private bool _disposed;
+    private readonly bool _publishIcons;
+    private readonly Dictionary<TrayIconKind, bool> _visibility = new();
+
+    public TrayIconManager(AppSettings settings, bool publishIcons = true)
+    {
+        _publishIcons = publishIcons;
+        _visualStyle = settings.IconVisualStyle;
+        _fontFamilyName = settings.IconFontFamily;
+        CodexFiveHourIcon = CreateIcon(UsageProvider.Codex, UsageWindowType.FiveHour, Colors[TrayIconKind.CodexFiveHour]);
+        CodexWeeklyIcon = CreateIcon(UsageProvider.Codex, UsageWindowType.Weekly, Colors[TrayIconKind.CodexWeekly]);
+        ClaudeFiveHourIcon = CreateIcon(UsageProvider.Claude, UsageWindowType.FiveHour, Colors[TrayIconKind.ClaudeFiveHour]);
+        ClaudeWeeklyIcon = CreateIcon(UsageProvider.Claude, UsageWindowType.Weekly, Colors[TrayIconKind.ClaudeWeekly]);
+        SettingsIcon = new NotifyIcon
+        {
+            Icon = SystemIcons.Application,
+            Text = "AgentTasktrayViewer 設定"
+        };
+
+        foreach (TrayIconKind kind in Enum.GetValues<TrayIconKind>())
+        {
+            _windows[kind] = UsageWindow.Unavailable(ToProvider(kind), ToWindowType(kind));
+        }
+        ApplyVisibility(settings);
+    }
+
+    public NotifyIcon CodexFiveHourIcon { get; }
+    public NotifyIcon CodexWeeklyIcon { get; }
+    public NotifyIcon ClaudeFiveHourIcon { get; }
+    public NotifyIcon ClaudeWeeklyIcon { get; }
+    public NotifyIcon SettingsIcon { get; }
+
+    public event EventHandler? VisibilityChanged;
+    public event EventHandler<VisibilityStateEventArgs>? VisibilityStateChanged;
+    public event EventHandler<StatusTextEventArgs>? StatusTextChanged;
+
+    public bool IsVisible(TrayIconKind kind) => _visibility.GetValueOrDefault(kind);
+
+    public bool IsProviderVisible(UsageProvider provider) => provider switch
+    {
+        UsageProvider.Codex => IsVisible(TrayIconKind.CodexFiveHour) || IsVisible(TrayIconKind.CodexWeekly),
+        UsageProvider.Claude => IsVisible(TrayIconKind.ClaudeFiveHour) || IsVisible(TrayIconKind.ClaudeWeekly),
+        _ => false
+    };
+
+    public void ShowWarning(UsageProvider provider, string title, string message)
+    {
+        NotifyIcon? icon = provider switch
+        {
+            UsageProvider.Codex when CodexFiveHourIcon.Visible => CodexFiveHourIcon,
+            UsageProvider.Codex when CodexWeeklyIcon.Visible => CodexWeeklyIcon,
+            UsageProvider.Claude when ClaudeFiveHourIcon.Visible => ClaudeFiveHourIcon,
+            UsageProvider.Claude when ClaudeWeeklyIcon.Visible => ClaudeWeeklyIcon,
+            _ => null
+        };
+        (icon ?? (SettingsIcon.Visible ? SettingsIcon : null))?.ShowBalloonTip(10000, title, message, ToolTipIcon.Warning);
+    }
+
+    public void CopyVisibilityTo(AppSettings settings)
+    {
+        settings.ShowCodexFiveHour = IsVisible(TrayIconKind.CodexFiveHour);
+        settings.ShowCodexWeekly = IsVisible(TrayIconKind.CodexWeekly);
+        settings.ShowClaudeFiveHour = IsVisible(TrayIconKind.ClaudeFiveHour);
+        settings.ShowClaudeWeekly = IsVisible(TrayIconKind.ClaudeWeekly);
+    }
+
+    public void AttachMenu(ContextMenuStrip menu)
+    {
+        _menu = menu;
+        foreach (NotifyIcon icon in AllIcons())
+        {
+            icon.ContextMenuStrip = menu;
+        }
+        SettingsIcon.ContextMenuStrip = menu;
+    }
+
+    public void ApplyVisibility(AppSettings settings)
+    {
+        SetVisible(TrayIconKind.CodexFiveHour, settings.ShowCodexFiveHour);
+        SetVisible(TrayIconKind.CodexWeekly, settings.ShowCodexWeekly);
+        SetVisible(TrayIconKind.ClaudeFiveHour, settings.ShowClaudeFiveHour);
+        SetVisible(TrayIconKind.ClaudeWeekly, settings.ShowClaudeWeekly);
+        UpdateSettingsIconVisibility();
+    }
+
+    public bool TrySetVisibility(TrayIconKind kind, bool isVisible)
+    {
+        SetVisible(kind, isVisible);
+        UpdateSettingsIconVisibility();
+        VisibilityChanged?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
+    public void Update(UsageWindow window)
+    {
+        TrayIconKind kind = ToKind(window.Provider, window.WindowType);
+        _windows[kind] = window;
+        NotifyIcon icon = GetIcon(kind);
+        Icon? previous = icon.Icon;
+        icon.Icon = IconFactory.Create(window, Colors[kind], _visualStyle, _fontFamilyName);
+        previous?.Dispose();
+        icon.Text = BuildToolTip(window);
+    }
+
+    public void ApplyAppearance(TrayIconVisualStyle visualStyle, string fontFamilyName)
+    {
+        _visualStyle = visualStyle;
+        _fontFamilyName = fontFamilyName;
+        foreach (UsageWindow window in _windows.Values.ToArray())
+        {
+            Update(window);
+        }
+    }
+
+    public void RefreshStatusText()
+    {
+        StatusTextChanged?.Invoke(this, new StatusTextEventArgs(
+            BuildStatusText(TrayIconKind.CodexFiveHour),
+            BuildStatusText(TrayIconKind.CodexWeekly),
+            BuildStatusText(TrayIconKind.ClaudeFiveHour),
+            BuildStatusText(TrayIconKind.ClaudeWeekly)));
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
+        foreach (NotifyIcon icon in AllIcons())
+        {
+            icon.Visible = false;
+            Icon? current = icon.Icon;
+            icon.Icon = null;
+            current?.Dispose();
+            icon.Dispose();
+        }
+        SettingsIcon.Visible = false;
+        SettingsIcon.Dispose();
+        _menu?.Dispose();
+    }
+
+    private void SetVisible(TrayIconKind kind, bool isVisible)
+    {
+        _visibility[kind] = isVisible;
+        GetIcon(kind).Visible = _publishIcons && isVisible;
+        VisibilityStateChanged?.Invoke(this, new VisibilityStateEventArgs(kind, isVisible));
+    }
+
+    private void UpdateSettingsIconVisibility()
+    {
+        SettingsIcon.Visible = _publishIcons && _visibility.Values.All(visible => !visible);
+    }
+
+    private NotifyIcon CreateIcon(UsageProvider provider, UsageWindowType windowType, Color color)
+    {
+        UsageWindow window = UsageWindow.Unavailable(provider, windowType);
+        var icon = new NotifyIcon
+        {
+            Icon = IconFactory.Create(window, color, _visualStyle, _fontFamilyName),
+            Text = BuildToolTip(window)
+        };
+        icon.Click += (_, _) => { };
+        return icon;
+    }
+
+    private NotifyIcon GetIcon(TrayIconKind kind) => kind switch
+    {
+        TrayIconKind.CodexFiveHour => CodexFiveHourIcon,
+        TrayIconKind.CodexWeekly => CodexWeeklyIcon,
+        TrayIconKind.ClaudeFiveHour => ClaudeFiveHourIcon,
+        TrayIconKind.ClaudeWeekly => ClaudeWeeklyIcon,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind))
+    };
+
+    private IEnumerable<NotifyIcon> AllIcons()
+    {
+        yield return CodexFiveHourIcon;
+        yield return CodexWeeklyIcon;
+        yield return ClaudeFiveHourIcon;
+        yield return ClaudeWeeklyIcon;
+    }
+
+    private string BuildStatusText(TrayIconKind kind)
+    {
+        UsageWindow window = _windows[kind];
+        return $"{DisplayName(kind, window)}  残り{DisplayPercent(window)}%（{DisplayUsed(window)}%使用）  リセット {FormatReset(window.ResetsAt)}";
+    }
+
+    private string BuildToolTip(UsageWindow window)
+    {
+        string text = $"{DisplayName(ToKind(window.Provider, window.WindowType), window)}: 残り{DisplayPercent(window)}% / {DisplayUsed(window)}%使用 / {FormatReset(window.ResetsAt)}リセット";
+        return text.Length <= 63 ? text : text[..60] + "...";
+    }
+
+    private static string DisplayPercent(UsageWindow window) => window.IsAvailable ? $"{Math.Round(window.RemainingPercent, MidpointRounding.AwayFromZero):0}" : "?";
+    private static string DisplayUsed(UsageWindow window) => window.IsAvailable ? $"{Math.Round(window.UsedPercent, MidpointRounding.AwayFromZero):0}" : "-";
+    private static string FormatReset(DateTimeOffset? value) => value is null ? "不明" : value.Value.ToString("M/d HH:mm");
+    private static string DisplayName(TrayIconKind kind, UsageWindow? window = null) => kind switch
+    {
+        TrayIconKind.CodexFiveHour => "Codex 5時間",
+        TrayIconKind.CodexWeekly when window?.WindowDurationMinutes is > 10080 => $"Codex {FormatWindowDuration(window.WindowDurationMinutes.Value)}",
+        TrayIconKind.CodexWeekly => "Codex 週間",
+        TrayIconKind.ClaudeFiveHour => "Claude 5時間",
+        TrayIconKind.ClaudeWeekly => "Claude 週間",
+        _ => "使用量"
+    };
+
+    private static string FormatWindowDuration(int minutes)
+    {
+        if (minutes % (24 * 60) == 0)
+        {
+            return $"{minutes / (24 * 60)}日";
+        }
+        if (minutes % 60 == 0)
+        {
+            return $"{minutes / 60}時間";
+        }
+        return $"{minutes}分";
+    }
+    private static UsageProvider ToProvider(TrayIconKind kind) => kind is TrayIconKind.CodexFiveHour or TrayIconKind.CodexWeekly
+        ? UsageProvider.Codex : UsageProvider.Claude;
+    private static UsageWindowType ToWindowType(TrayIconKind kind) => kind is TrayIconKind.CodexFiveHour or TrayIconKind.ClaudeFiveHour
+        ? UsageWindowType.FiveHour : UsageWindowType.Weekly;
+    private static TrayIconKind ToKind(UsageProvider provider, UsageWindowType type) => (provider, type) switch
+    {
+        (UsageProvider.Codex, UsageWindowType.FiveHour) => TrayIconKind.CodexFiveHour,
+        (UsageProvider.Codex, UsageWindowType.Weekly) => TrayIconKind.CodexWeekly,
+        (UsageProvider.Claude, UsageWindowType.FiveHour) => TrayIconKind.ClaudeFiveHour,
+        (UsageProvider.Claude, UsageWindowType.Weekly) => TrayIconKind.ClaudeWeekly,
+        _ => throw new ArgumentOutOfRangeException()
+    };
+}
